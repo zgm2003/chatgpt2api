@@ -732,7 +732,7 @@ class PlatformRegistrar:
             next_parsed = urlparse(next_url)
             if next_parsed.scheme not in ("http", "https") or next_parsed.netloc != "auth.openai.com":
                 return current, None
-            if next_parsed.path not in ("/api/oauth/oauth2/auth", "/api/accounts/login"):
+            if next_parsed.path not in ("/api/oauth/oauth2/auth", "/api/accounts/login", "/log-in/password"):
                 return current, None
             step(index, f"跟随 auth 内部跳转 {next_parsed.path}")
             next_resp, error = request_with_local_retry(
@@ -749,6 +749,53 @@ class PlatformRegistrar:
                 raise RuntimeError(error or "auth_internal_redirect_failed")
             current = next_resp
         return current, extract_oauth_callback_params_from_response(current)
+
+    def _login_username_required(self, resp) -> bool:
+        candidates = [
+            str(getattr(resp, "url", "") or "").strip(),
+            str((getattr(resp, "headers", {}) or {}).get("Location") or "").strip(),
+        ]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            parsed = urlparse(urljoin(auth_base, candidate))
+            if parsed.netloc == "auth.openai.com" and parsed.path in {"/api/accounts/login", "/log-in"}:
+                return True
+        return False
+
+    def _login_password_page_loaded(self, resp) -> bool:
+        candidates = [
+            str(getattr(resp, "url", "") or "").strip(),
+            str((getattr(resp, "headers", {}) or {}).get("Location") or "").strip(),
+        ]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            parsed = urlparse(urljoin(auth_base, candidate))
+            if parsed.netloc == "auth.openai.com" and parsed.path == "/log-in/password":
+                return True
+        return False
+
+    def _submit_login_username(self, email: str, referer: str, index: int) -> str:
+        step(index, "Codex login 提交 username")
+        headers = self._json_headers(referer or f"{auth_base}/log-in")
+        resp, error = request_with_local_retry(
+            self.session,
+            "post",
+            f"{auth_base}/api/accounts/authorize/continue",
+            json={"username": {"value": email, "kind": "email"}, "screen_hint": "login_or_signup"},
+            headers=headers,
+            allow_redirects=False,
+            verify=False,
+            timeout=20,
+            retry_statuses=(429, 500, 502, 503, 504),
+        )
+        if resp is None or resp.status_code not in (200, 302):
+            raise RuntimeError(error or f"login_username_continue_http_{getattr(resp, 'status_code', 'unknown')}{_response_error_detail(resp)}")
+        payload = _response_json(resp)
+        continue_url = str(payload.get("continue_url") or "").strip()
+        location = str((getattr(resp, "headers", {}) or {}).get("Location") or "").strip()
+        return continue_url or (urljoin(auth_base, location) if location else f"{auth_base}/log-in/password")
 
     def _handle_codex_add_phone(self, continue_url: str, index: int) -> str:
         hero_sms = config.get("hero_sms") if isinstance(config.get("hero_sms"), dict) else {}
@@ -931,7 +978,10 @@ class PlatformRegistrar:
                 step(index, "authorize 已返回 OAuth code，跳过密码校验")
                 return tokens
             step(index, "authorize 已返回 OAuth code，但 token 换取失败，继续尝试密码校验", "yellow")
-        headers = self._json_headers(f"{auth_base}/log-in/password")
+        password_referer = f"{auth_base}/log-in/password"
+        if profile.get("kind") == "codex" and (self._login_username_required(resp) or self._login_password_page_loaded(resp)):
+            password_referer = self._submit_login_username(email, str(getattr(resp, "url", "") or auth_base), index)
+        headers = self._json_headers(password_referer)
         headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "password_verify")
         resp, error = request_with_local_retry(self.session, "post", f"{auth_base}/api/accounts/password/verify", json={"password": password}, headers=headers, allow_redirects=False, verify=False)
         if resp is None or resp.status_code != 200:

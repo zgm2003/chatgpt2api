@@ -290,7 +290,7 @@ class OpenAIRegisterLoginFlowTests(unittest.TestCase):
         redirect_call_index = next(index for index, (_, url, _) in enumerate(session.calls) if "/api/oauth/oauth2/auth" in url)
         self.assertLess(redirect_call_index, password_call_index)
 
-    def test_codex_login_follows_accounts_login_but_not_password_page_redirect(self):
+    def test_codex_login_loads_password_page_and_binds_username_after_accounts_login_redirect(self):
         class CodexLoginPageRedirectSession:
             def __init__(self):
                 self.calls = []
@@ -317,7 +317,13 @@ class OpenAIRegisterLoginFlowTests(unittest.TestCase):
                         url=url,
                     )
                 if "/log-in/password" in url:
-                    raise AssertionError("password page redirects should not be chased before password_verify")
+                    return FakeResponse(status_code=200, url=url)
+                if "/api/accounts/authorize/continue" in url:
+                    return FakeResponse(
+                        status_code=200,
+                        json_data={"continue_url": "https://auth.openai.com/log-in/password", "page": {"type": "login_password"}},
+                        url=url,
+                    )
                 if "/api/accounts/password/verify" in url:
                     return FakeResponse(
                         status_code=200,
@@ -349,9 +355,14 @@ class OpenAIRegisterLoginFlowTests(unittest.TestCase):
 
         self.assertEqual(tokens, expected_tokens)
         accounts_login_call_index = next(index for index, (_, url, _) in enumerate(session.calls) if "/api/accounts/login" in url)
+        password_page_call_index = next(index for index, (_, url, _) in enumerate(session.calls) if "/log-in/password" in url)
+        username_continue_call_index = next(index for index, (_, url, _) in enumerate(session.calls) if "/api/accounts/authorize/continue" in url)
         password_verify_call_index = next(index for index, (_, url, _) in enumerate(session.calls) if "/api/accounts/password/verify" in url)
-        self.assertLess(accounts_login_call_index, password_verify_call_index)
-        self.assertFalse(any("/log-in/password" in url for _, url, _ in session.calls))
+        self.assertLess(accounts_login_call_index, password_page_call_index)
+        self.assertLess(password_page_call_index, username_continue_call_index)
+        self.assertLess(username_continue_call_index, password_verify_call_index)
+        username_call = next(call for call in session.calls if "/api/accounts/authorize/continue" in call[1])
+        self.assertEqual(username_call[2]["json"], {"username": {"value": "user@example.com", "kind": "email"}, "screen_hint": "login_or_signup"})
 
     def test_codex_add_phone_uses_hero_sms_reuse_send_and_validate(self):
         class AddPhoneSession:
