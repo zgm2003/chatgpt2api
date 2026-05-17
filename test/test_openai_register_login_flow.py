@@ -460,6 +460,58 @@ class OpenAIRegisterLoginFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "HeroSMS activation 不可用"):
                 registrar._handle_codex_add_phone("https://auth.openai.com/add-phone", 1)
 
+    def test_codex_add_phone_cancels_auto_bought_number_when_send_fails(self):
+        class SendFailSession:
+            def request(self, method, url, **kwargs):
+                if "/api/accounts/add-phone/send" in url:
+                    return FakeResponse(
+                        status_code=400,
+                        json_data={"error": {"code": "rate_limit_exceeded"}},
+                        url=url,
+                    )
+                raise AssertionError(f"unexpected request {method} {url}")
+
+        class HeroClientWithCancel:
+            instances = []
+
+            def __init__(self, *args, **kwargs):
+                self.cancelled = []
+                HeroClientWithCancel.instances.append(self)
+
+            def get_status(self, activation_id):
+                return "STATUS_WAIT_CODE"
+
+            def cancel(self, activation_id):
+                self.cancelled.append(activation_id)
+                return "ACCESS_CANCEL"
+
+            def close(self):
+                pass
+
+        registrar = openai_register.PlatformRegistrar.__new__(openai_register.PlatformRegistrar)
+        registrar.session = SendFailSession()
+        registrar.device_id = "device-1"
+        hero_config = {
+            "enabled": True,
+            "api_key": "hero-key",
+            "wait_timeout": 120,
+            "poll_interval": 1,
+            "auto_buy": True,
+            "cancel_on_send_fail": True,
+        }
+        activation = mock.Mock(activation_id="387677529", phone="84901234889", raw="ACCESS_NUMBER:387677529:84901234889")
+
+        with (
+            mock.patch.dict(openai_register.config, {"hero_sms": hero_config}),
+            mock.patch.object(openai_register, "resolve_activation", return_value=activation),
+            mock.patch.object(openai_register, "HeroSmsClient", HeroClientWithCancel),
+            mock.patch.object(openai_register, "step"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "add_phone_send_http_400"):
+                registrar._handle_codex_add_phone("https://auth.openai.com/add-phone", 1)
+
+        self.assertEqual(HeroClientWithCancel.instances[0].cancelled, ["387677529"])
+
     def test_register_can_use_codex_oauth_profile_without_changing_default(self):
         registrar = openai_register.PlatformRegistrar.__new__(openai_register.PlatformRegistrar)
         registrar.session = mock.Mock()

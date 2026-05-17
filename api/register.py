@@ -41,6 +41,11 @@ def create_router() -> APIRouter:
         require_admin(authorization)
         return {"register": register_service.start()}
 
+    @router.post("/api/register/codex/start")
+    async def start_codex_register(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return {"register": register_service.start_codex()}
+
     @router.post("/api/register/stop")
     async def stop_register(authorization: str | None = Header(default=None)):
         require_admin(authorization)

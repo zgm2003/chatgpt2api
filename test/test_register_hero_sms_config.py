@@ -28,6 +28,9 @@ class RegisterHeroSmsConfigTests(unittest.TestCase):
                 "poll_interval": 5,
                 "reuse_activation_id": "",
                 "reuse_phone": "",
+                "auto_buy": False,
+                "max_price_usd": 0.03,
+                "cancel_on_send_fail": True,
             },
         )
 
@@ -46,6 +49,9 @@ class RegisterHeroSmsConfigTests(unittest.TestCase):
                     "poll_interval": "2",
                     "reuse_activation_id": "  12345 ",
                     "reuse_phone": " +84901234567 ",
+                    "auto_buy": True,
+                    "max_price_usd": "0.025",
+                    "cancel_on_send_fail": False,
                 }
             }
         )
@@ -59,6 +65,9 @@ class RegisterHeroSmsConfigTests(unittest.TestCase):
         self.assertEqual(cfg["hero_sms"]["poll_interval"], 2)
         self.assertEqual(cfg["hero_sms"]["reuse_activation_id"], "12345")
         self.assertEqual(cfg["hero_sms"]["reuse_phone"], "+84901234567")
+        self.assertEqual(cfg["hero_sms"]["auto_buy"], True)
+        self.assertEqual(cfg["hero_sms"]["max_price_usd"], 0.025)
+        self.assertEqual(cfg["hero_sms"]["cancel_on_send_fail"], False)
 
     def test_register_ui_exposes_hero_sms_fields(self) -> None:
         source = REGISTER_CARD.read_text(encoding="utf-8")
@@ -70,12 +79,18 @@ class RegisterHeroSmsConfigTests(unittest.TestCase):
         self.assertIn("config.hero_sms.operator", source)
         self.assertIn("config.hero_sms.reuse_activation_id", source)
         self.assertIn("config.hero_sms.reuse_phone", source)
+        self.assertIn("config.hero_sms.auto_buy", source)
+        self.assertIn("config.hero_sms.max_price_usd", source)
+        self.assertIn("config.hero_sms.cancel_on_send_fail", source)
+        self.assertIn("启动 Codex CPA 注册", source)
 
     def test_register_store_saves_hero_sms_config(self) -> None:
         source = SETTINGS_STORE.read_text(encoding="utf-8")
 
         self.assertIn("setRegisterHeroSmsField", source)
         self.assertIn("hero_sms: registerConfig.hero_sms", source)
+        self.assertIn("max_price_usd", source)
+        self.assertIn("startCodexRegister", source)
 
     def test_codex_poc_reads_hero_sms_config_without_printing_key(self) -> None:
         source = CODEX_POC.read_text(encoding="utf-8")

@@ -20,7 +20,8 @@ from curl_cffi import requests as curl_requests
 from requests.adapters import HTTPAdapter
 
 from services.account_service import account_service
-from services.hero_sms_service import HeroSmsClient, resolve_activation
+from services.hero_sms_service import HeroSmsClient
+from services.phone_broker_service import reserve_phone as resolve_activation
 from services.register import domain_reputation, mail_provider
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -45,6 +46,9 @@ config = {
         "poll_interval": 5,
         "reuse_activation_id": "",
         "reuse_phone": "",
+        "auto_buy": False,
+        "max_price_usd": 0.03,
+        "cancel_on_send_fail": True,
     },
 }
 default_hero_sms_config = {
@@ -57,6 +61,9 @@ default_hero_sms_config = {
     "poll_interval": 5,
     "reuse_activation_id": "",
     "reuse_phone": "",
+    "auto_buy": False,
+    "max_price_usd": 0.03,
+    "cancel_on_send_fail": True,
 }
 
 register_config_file = base_dir.parents[1] / "data" / "register.json"
@@ -759,6 +766,16 @@ class PlatformRegistrar:
             api_key,
             poll_interval=float(hero_sms.get("poll_interval") or 5),
         )
+
+        def cancel_activation(reason: str) -> None:
+            if not bool(hero_sms.get("cancel_on_send_fail", True)):
+                return
+            try:
+                client.cancel(str(activation.activation_id))
+                step(index, f"{reason}，已 cancel HeroSMS activation={activation.activation_id}", "yellow")
+            except Exception as exc:
+                step(index, f"{reason}，HeroSMS cancel 失败: {exc}", "yellow")
+
         try:
             activation_status = client.get_status(str(activation.activation_id))
             if activation_status not in {"STATUS_WAIT_CODE", "STATUS_WAIT_RETRY", "STATUS_WAIT_RESEND"}:
@@ -774,6 +791,7 @@ class PlatformRegistrar:
                 retry_statuses=(429, 500, 502, 503, 504),
             )
             if send_resp is None or send_resp.status_code != 200:
+                cancel_activation("add_phone_send 失败")
                 raise RuntimeError(error or f"add_phone_send_http_{getattr(send_resp, 'status_code', 'unknown')}{_response_error_detail(send_resp)}")
             phone_verify_url = _continue_url_from_auth_payload(_response_json(send_resp)) or f"{auth_base}/phone-verification"
             step(index, "add_phone 发送验证码完成")
@@ -789,9 +807,14 @@ class PlatformRegistrar:
                 retry_statuses=(429, 500, 502, 503, 504),
             )
             if nav_resp is None or getattr(nav_resp, "status_code", 0) >= 400:
+                cancel_activation("phone_verification 页面失败")
                 raise RuntimeError(error or f"phone_verification_page_http_{getattr(nav_resp, 'status_code', 'unknown')}{_response_error_detail(nav_resp)}")
 
-            code = client.poll_code(str(activation.activation_id), timeout=float(hero_sms.get("wait_timeout") or 1200))
+            try:
+                code = client.poll_code(str(activation.activation_id), timeout=float(hero_sms.get("wait_timeout") or 1200))
+            except Exception:
+                cancel_activation("等待 HeroSMS 验证码失败")
+                raise
             step(index, f"HeroSMS 收到 add_phone 验证码: {code}")
             verify_resp, error = request_with_local_retry(
                 self.session,

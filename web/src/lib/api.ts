@@ -219,6 +219,9 @@ export type RegisterConfig = {
     poll_interval: number;
     reuse_activation_id: string;
     reuse_phone: string;
+    auto_buy: boolean;
+    max_price_usd: number;
+    cancel_on_send_fail: boolean;
   };
   proxy: string;
   total: number;
@@ -574,6 +577,10 @@ export async function updateRegisterConfig(updates: Partial<RegisterConfig>) {
 
 export async function startRegister() {
   return httpRequest<{ register: RegisterConfig }>("/api/register/start", { method: "POST" });
+}
+
+export async function startCodexRegister() {
+  return httpRequest<{ register: RegisterConfig }>("/api/register/codex/start", { method: "POST" });
 }
 
 export async function stopRegister() {

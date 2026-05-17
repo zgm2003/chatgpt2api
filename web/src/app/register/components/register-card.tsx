@@ -29,6 +29,7 @@ export function RegisterCard() {
   const deleteProvider = useSettingsStore((state) => state.deleteRegisterProvider);
   const save = useSettingsStore((state) => state.saveRegister);
   const toggle = useSettingsStore((state) => state.toggleRegister);
+  const startCodex = useSettingsStore((state) => state.startCodexRegister);
   const reset = useSettingsStore((state) => state.resetRegister);
 
   if (isLoading) {
@@ -126,6 +127,20 @@ export function RegisterCard() {
                 <Checkbox checked={Boolean(config.hero_sms.enabled)} onCheckedChange={(checked) => setHeroSmsField("enabled", Boolean(checked))} disabled={config.enabled} />
                 启用
               </label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(config.hero_sms.auto_buy)} onCheckedChange={(checked) => setHeroSmsField("auto_buy", Boolean(checked))} disabled={config.enabled} />
+                自动买号
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(config.hero_sms.cancel_on_send_fail)} onCheckedChange={(checked) => setHeroSmsField("cancel_on_send_fail", Boolean(checked))} disabled={config.enabled} />
+                send 失败自动 cancel
+              </label>
+              <div className="space-y-1">
+                <label className="text-sm text-stone-700">单号最高价 USD</label>
+                <Input value={String(config.hero_sms.max_price_usd || "")} onChange={(event) => setHeroSmsField("max_price_usd", event.target.value)} placeholder="0.03" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !config.hero_sms.auto_buy} />
+              </div>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2 md:col-span-2">
@@ -327,9 +342,13 @@ export function RegisterCard() {
                 保存
               </Button>
             </div>
+            <Button className="h-10 w-full rounded-xl bg-emerald-700 px-3 text-white hover:bg-emerald-600" onClick={() => void startCodex()} disabled={isSaving || config.enabled}>
+              {isSaving ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
+              启动 Codex CPA 注册
+            </Button>
             <div className="flex items-center gap-2 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <AlertTriangle className="size-4 shrink-0" />
-              启动之前注意先保存配置。
+              普通“启动”只跑普通账号；Codex 必须点“启动 Codex CPA 注册”，遇到 add_phone 才会按 HeroSMS 配置买/复用号码。
             </div>
         </div>
 

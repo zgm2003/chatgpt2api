@@ -14,6 +14,7 @@ import {
   resetRegister as resetRegisterApi,
   fetchSettingsConfig,
   runBackupNow,
+  startCodexRegister as startCodexRegisterApi,
   startRegister,
   startCPAImport,
   stopRegister,
@@ -200,6 +201,7 @@ type SettingsStore = {
   deleteRegisterProvider: (index: number) => void;
   saveRegister: () => Promise<void>;
   toggleRegister: () => Promise<void>;
+  startCodexRegister: () => Promise<void>;
   resetRegister: () => Promise<void>;
 
   loadPools: (silent?: boolean) => Promise<void>;
@@ -587,7 +589,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setRegisterHeroSmsField: (key, value) => {
     set((state) => {
       if (!state.registerConfig) return {};
-      const numericFields = new Set(["country", "wait_timeout", "poll_interval"]);
+      const numericFields = new Set(["country", "wait_timeout", "poll_interval", "max_price_usd"]);
       return {
         registerConfig: {
           ...state.registerConfig,
@@ -684,6 +686,32 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       toast.success(registerConfig.enabled ? "注册任务已停止" : "注册任务已启动");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "切换注册状态失败");
+    } finally {
+      set({ isSavingRegister: false });
+    }
+  },
+
+  startCodexRegister: async () => {
+    const { registerConfig } = get();
+    if (!registerConfig) return;
+    set({ isSavingRegister: true });
+    try {
+      await updateRegisterConfig({
+        mail: registerConfig.mail,
+        hero_sms: registerConfig.hero_sms,
+        proxy: registerConfig.proxy.trim(),
+        total: Math.max(1, Number(registerConfig.total) || 1),
+        threads: Math.max(1, Number(registerConfig.threads) || 1),
+        mode: registerConfig.mode,
+        target_quota: Math.max(1, Number(registerConfig.target_quota) || 1),
+        target_available: Math.max(1, Number(registerConfig.target_available) || 1),
+        check_interval: Math.max(1, Number(registerConfig.check_interval) || 5),
+      });
+      const data = await startCodexRegisterApi();
+      set({ registerConfig: data.register });
+      toast.success("Codex CPA 注册任务已启动");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "启动 Codex CPA 注册失败");
     } finally {
       set({ isSavingRegister: false });
     }
